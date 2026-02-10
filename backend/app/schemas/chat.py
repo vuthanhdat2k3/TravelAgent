@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from uuid import UUID
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -9,11 +10,11 @@ class ConversationState(BaseModel):
     """Router state stored in conversation.state (JSONB)."""
 
     current_intent: str | None = None
-    slots: dict[str, str] = Field(default_factory=dict)  # origin, destination, depart_date, etc.
+    slots: dict[str, Any] = Field(default_factory=dict)  # origin, destination, depart_date, etc.
     last_offer_ids: list[str] = Field(default_factory=list)
     selected_passenger_id: UUID | None = None
     step: str | None = None  # e.g. "awaiting_offer_choice", "awaiting_passenger"
-    metadata_: dict | None = Field(None, alias="metadata")
+    metadata_: dict[str, Any] | None = Field(None, alias="metadata")
 
     model_config = {"populate_by_name": True}
 
@@ -26,9 +27,13 @@ class MessageSchema(BaseModel):
     content: str
     intent: str | None = None
     agent_name: str | None = None
+    # validation_alias reads obj.metadata_ (the real SQLAlchemy column attr)
+    # serialization_alias outputs "metadata" in JSON
+    # Using alias="metadata" would hit SQLAlchemy's reserved Base.metadata
+    metadata_: dict | None = Field(None, validation_alias="metadata_", serialization_alias="metadata")
     created_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class ChatRequest(BaseModel):

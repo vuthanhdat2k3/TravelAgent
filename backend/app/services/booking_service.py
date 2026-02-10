@@ -1,12 +1,19 @@
 from uuid import UUID
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
+import logging
 
 from app.models.booking import Booking
 from app.models.booking_flight import BookingFlight
 from app.models.passenger import Passenger
+from app.models.flight_offer_cache import FlightOfferCache
 from app.schemas.booking import BookingCreateRequest, BookingResponse, BookingListResponse
+from app.schemas.flight import FlightSegment
+
+logger = logging.getLogger(__name__)
 
 
 async def get_booking_by_id(
@@ -16,7 +23,9 @@ async def get_booking_by_id(
 ) -> Booking | None:
     """Get booking by ID, ensuring it belongs to the user."""
     result = await db.execute(
-        select(Booking).where(
+        select(Booking)
+        .options(selectinload(Booking.flights))  # Eager load flights
+        .where(
             Booking.id == booking_id,
             Booking.user_id == user_id
         )
@@ -32,7 +41,7 @@ async def get_bookings(
     status_filter: str | None = None
 ) -> list[Booking]:
     """Get list of bookings for a user."""
-    query = select(Booking).where(Booking.user_id == user_id)
+    query = select(Booking).options(selectinload(Booking.flights)).where(Booking.user_id == user_id)
     
     if status_filter:
         query = query.where(Booking.status == status_filter)
@@ -67,28 +76,103 @@ async def create_booking(
             detail="Passenger not found or does not belong to user"
         )
     
-    # TODO: Validate offer_id with cache or Amadeus API
-    # TODO: Get flight details from cache/Amadeus
-    # TODO: Call Amadeus Order/Booking API
+    # Get flight offer from cache
+    # Multiple cache entries may exist for same offer_id (from multiple searches)
+    # Always get the newest one
+    offer_cache_result = await db.execute(
+        select(FlightOfferCache).where(
+            FlightOfferCache.offer_id == booking_request.offer_id,
+            FlightOfferCache.expires_at > datetime.utcnow()
+        )
+        .order_by(FlightOfferCache.created_at.desc())
+        .limit(1)
+    )
+    offer_cache = offer_cache_result.scalar_one_or_none()
     
-    # For now, create booking with PENDING status
+    if not offer_cache:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Flight offer not found or expired. Please search again."
+        )
+    
+    offer_payload = offer_cache.payload
+    
+    # Extract price and currency from offer
+    total_price = offer_payload.get("total_price", 0)
+    currency = offer_payload.get("currency", "VND")
+    
+    # Create booking with PENDING status
     db_booking = Booking(
         user_id=user_id,
         passenger_id=booking_request.passenger_id,
         status="PENDING",
         provider="AMADEUS",
         amadeus_offer_id=booking_request.offer_id,
+        total_price=total_price,
+        currency=currency,
         # booking_reference will be set after Amadeus confirms
-        # total_price and currency will come from Amadeus response
     )
     
     db.add(db_booking)
+    await db.flush()  # Get booking ID without committing
+    
+    # Create BookingFlight records from offer segments
+    flight_responses = []
+    segments = offer_payload.get("segments", [])
+    
+    for segment in segments:
+        # Parse datetime strings
+        try:
+            departure_time = datetime.fromisoformat(segment.get("departure_time", "").replace("Z", "+00:00"))
+            arrival_time = datetime.fromisoformat(segment.get("arrival_time", "").replace("Z", "+00:00"))
+        except ValueError as e:
+            logger.warning(f"Failed to parse flight times: {e}")
+            continue
+        
+        # Calculate duration
+        duration_minutes = int((arrival_time - departure_time).total_seconds() / 60)
+        
+        flight_number = f"{segment.get('airline_code', '')}{segment.get('flight_number', '')}"
+        
+        booking_flight = BookingFlight(
+            booking_id=db_booking.id,
+            origin=segment.get("origin", ""),
+            destination=segment.get("destination", ""),
+            departure_time=departure_time,
+            arrival_time=arrival_time,
+            airline_code=segment.get("airline_code", ""),
+            flight_number=flight_number,
+            duration_minutes=duration_minutes,
+            stops=offer_payload.get("stops", 0),
+            cabin_class=segment.get("cabin_class", "ECONOMY")
+        )
+        
+        db.add(booking_flight)
+        
+        # Build flight response
+        flight_responses.append(FlightSegment(
+            origin=booking_flight.origin,
+            destination=booking_flight.destination,
+            departure_time=booking_flight.departure_time,
+            arrival_time=booking_flight.arrival_time,
+            airline_code=booking_flight.airline_code,
+            flight_number=booking_flight.flight_number
+        ))
+    
     await db.commit()
-    await db.refresh(db_booking)
     
-    # TODO: Create BookingFlight records from offer details
-    
-    return BookingResponse.model_validate(db_booking)
+    # Manually create response to avoid lazy-loading issues
+    return BookingResponse(
+        id=db_booking.id,
+        status=db_booking.status,
+        provider=db_booking.provider,
+        booking_reference=db_booking.booking_reference,
+        total_price=float(db_booking.total_price) if db_booking.total_price else None,
+        currency=db_booking.currency,
+        flights=flight_responses,
+        created_at=db_booking.created_at,
+        confirmed_at=db_booking.confirmed_at,
+    )
 
 
 async def cancel_booking(
@@ -121,4 +205,15 @@ async def cancel_booking(
     await db.commit()
     await db.refresh(db_booking)
     
-    return BookingResponse.model_validate(db_booking)
+    # Manually create response to avoid lazy-loading issues
+    return BookingResponse(
+        id=db_booking.id,
+        status=db_booking.status,
+        provider=db_booking.provider,
+        booking_reference=db_booking.booking_reference,
+        total_price=float(db_booking.total_price) if db_booking.total_price else None,
+        currency=db_booking.currency,
+        flights=[],  # Will be populated when BookingFlight records are created
+        created_at=db_booking.created_at,
+        confirmed_at=db_booking.confirmed_at,
+    )

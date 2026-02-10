@@ -1,26 +1,18 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactNode, useState } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { type ReactNode } from "react";
+import { getQueryClient } from "./get-query-client";
 
 type Props = {
   children: ReactNode;
 };
 
 export function ReactQueryProvider({ children }: Props) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 1000 * 60, // 1 minute
-            refetchOnWindowFocus: true,
-            retry: 1,
-          },
-        },
-      }),
-  );
+  const queryClient = getQueryClient();
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
 }
 

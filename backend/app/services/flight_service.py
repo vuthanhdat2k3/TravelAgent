@@ -1,7 +1,7 @@
 from uuid import UUID, uuid4
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, Float
 from fastapi import HTTPException, status
 import hashlib
 import json
@@ -52,7 +52,7 @@ async def search_flights(
             "adults": search_request.adults,
             "travelClass": search_request.travel_class,
             "currencyCode": search_request.currency,
-            "max": 50  # Limit results
+            "max": 10  # Limit results
         }
         
         # Add return date if round trip
@@ -107,6 +107,87 @@ async def get_flight_searches(
     return list(result.scalars().all())
 
 
+async def get_offer_by_flight_number(
+    db: AsyncSession,
+    flight_number: str,
+    origin: str | None = None,
+    destination: str | None = None,
+    depart_date: str | None = None
+) -> dict | None:
+    """
+    Get cached flight offer by flight number + route.
+    
+    Args:
+        db: Database session
+        flight_number: Flight number like "VJ145" or "VJ 145" (spaces will be removed)
+        origin: Departure airport IATA code (e.g., HAN)
+        destination: Arrival airport IATA code (e.g., SGN)
+        depart_date: Departure date (YYYY-MM-DD)
+    
+    Returns:
+        Offer dict or None if not found or expired
+    
+    Note:
+        Flight number alone is not unique! VJ197 can fly multiple routes.
+        Origin + Destination are REQUIRED to find the correct flight.
+    """
+    # Normalize flight number (remove spaces, uppercase)
+    normalized_flight_number = flight_number.replace(" ", "").upper()
+    
+    # Query all cache entries with this flight number
+    result = await db.execute(
+        select(FlightOfferCache)
+        .where(
+            FlightOfferCache.flight_numbers.contains([normalized_flight_number]),
+            FlightOfferCache.expires_at > datetime.utcnow()
+        )
+    )
+    
+    cache_items = result.scalars().all()
+    
+    if not cache_items:
+        return None
+    
+    # Filter by origin/destination/date if provided
+    matched_offers = []
+    
+    for cache_item in cache_items:
+        offer = cache_item.payload
+        segments = offer.get("segments", [])
+        
+        if not segments:
+            continue
+        
+        # Check if first segment matches origin/destination
+        first_segment = segments[0]
+        
+        # Match criteria
+        origin_match = not origin or first_segment.get("origin") == origin.upper()
+        dest_match = not destination or first_segment.get("destination") == destination.upper()
+        
+        # Date match (check departure_time)
+        date_match = True
+        if depart_date:
+            dep_time = first_segment.get("departure_time", "")
+            if dep_time:
+                try:
+                    dep_date = dep_time.split("T")[0]  # Extract YYYY-MM-DD
+                    date_match = dep_date == depart_date
+                except:
+                    date_match = False
+        
+        if origin_match and dest_match and date_match:
+            matched_offers.append((cache_item, offer))
+    
+    if not matched_offers:
+        return None
+    
+    # Sort by price (cheapest first)
+    matched_offers.sort(key=lambda x: x[1].get("total_price", float('inf')))
+    
+    return matched_offers[0][1]
+
+
 def _create_search_key(search_request: FlightSearchRequest) -> str:
     """Create a hash key for caching based on search parameters."""
     key_data = {
@@ -147,13 +228,32 @@ async def _cache_offers(
     offers: list[dict]
 ) -> None:
     """Cache flight offers with expiration (15-30 minutes)."""
+    # Delete old cache entries for this search_key to avoid duplicates
+    await db.execute(
+        FlightOfferCache.__table__.delete().where(
+            FlightOfferCache.search_key == search_key
+        )
+    )
+    
     expires_at = datetime.utcnow() + timedelta(minutes=30)
     
     for offer in offers:
+        # Extract flight numbers from segments
+        flight_numbers = []
+        for segment in offer.get("segments", []):
+            airline_code = segment.get("airline_code", "")
+            flight_number = segment.get("flight_number", "")
+            if airline_code and flight_number:
+                # Format: VJ145, VN123, etc.
+                flight_code = f"{airline_code}{flight_number}"
+                if flight_code not in flight_numbers:
+                    flight_numbers.append(flight_code)
+        
         cache_item = FlightOfferCache(
             search_key=search_key,
             offer_id=offer.get("offer_id", str(uuid4())),
             payload=offer,
+            flight_numbers=flight_numbers if flight_numbers else None,
             expires_at=expires_at
         )
         db.add(cache_item)

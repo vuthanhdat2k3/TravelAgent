@@ -23,6 +23,7 @@ export function useRequireAuth() {
 
     try {
       const user = JSON.parse(userRaw);
+      // setSession also syncs the cookie for SSR prefetching
       setSession({ accessToken, refreshToken, user });
     } catch {
       clearSession();

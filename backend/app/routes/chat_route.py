@@ -1,5 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.chat import (
@@ -70,6 +71,29 @@ async def get_conversation_details(
     }
 
 
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a single conversation and all its messages."""
+    from app.services.chat_service import delete_conversation as _delete
+    await _delete(db, conversation_id, current_user.id)
+    return None
+
+
+@router.delete("/conversations", status_code=status.HTTP_200_OK)
+async def delete_all_conversations(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all conversations for the current user."""
+    from app.services.chat_service import delete_all_conversations as _delete_all
+    count = await _delete_all(db, current_user.id)
+    return {"deleted": count}
+
+
 @router.post("/messages", response_model=ChatResponse)
 async def send_chat_message(
     chat_request: ChatRequest,
@@ -98,3 +122,35 @@ async def send_message_to_conversation(
     
     user_id = current_user.id if current_user else None
     return await send_message(db, chat_request, user_id)
+
+
+@router.post("/messages/stream")
+async def stream_chat_message(
+    chat_request: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_active_user_optional),
+):
+    """Send a message and stream AI response via Server-Sent Events (SSE)."""
+    from app.services.chat_service import send_message_stream
+    import json, logging
+
+    user_id = current_user.id if current_user else None
+    _logger = logging.getLogger(__name__)
+
+    async def event_generator():
+        try:
+            async for chunk in send_message_stream(db, chat_request, user_id):
+                yield f"data: {chunk}\n\n"
+        except Exception as e:
+            _logger.error(f"SSE stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Đã xảy ra lỗi. Vui lòng thử lại.'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

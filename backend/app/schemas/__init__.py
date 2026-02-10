@@ -57,6 +57,14 @@ from app.schemas.offer_cache import (
     FlightOfferCacheResponse,
 )
 from app.schemas.validation import ValidationResult
+from app.schemas.llm_config import (
+    LLMProvider,
+    LLMConfigCreate,
+    LLMConfigUpdate,
+    LLMConfigResponse,
+    AvailableModel,
+    AvailableModelsResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -96,4 +104,10 @@ __all__ = [
     "FlightOfferCacheCreate",
     "FlightOfferCacheResponse",
     "ValidationResult",
+    "LLMProvider",
+    "LLMConfigCreate",
+    "LLMConfigUpdate",
+    "LLMConfigResponse",
+    "AvailableModel",
+    "AvailableModelsResponse",
 ]

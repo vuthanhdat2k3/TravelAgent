@@ -11,6 +11,7 @@ from app.models.flight_offer_cache import FlightOfferCache
 from app.models.user_preference import UserPreference
 from app.models.calendar_event import CalendarEvent
 from app.models.notification_log import NotificationLog
+from app.models.llm_config import LLMConfig
 
 __all__ = [
     "Base",
@@ -28,4 +29,5 @@ __all__ = [
     "UserPreference",
     "CalendarEvent",
     "NotificationLog",
+    "LLMConfig",
 ]

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.notification import NotificationLogResponse
@@ -14,10 +14,10 @@ router = APIRouter(prefix="/users/me/notifications", tags=["notifications"])
 async def list_my_notifications(
     skip: int = 0,
     limit: int = 20,
-    type: str | None = None,
+    notification_type: str | None = None,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get notification history for current user."""
-    notifications = await get_notifications(db, current_user.id, skip, limit, type)
+    notifications = await get_notifications(db, current_user.id, skip, limit, notification_type)
     return [NotificationLogResponse.model_validate(n) for n in notifications]

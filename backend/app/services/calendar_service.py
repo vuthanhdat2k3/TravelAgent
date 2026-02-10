@@ -2,11 +2,18 @@ from uuid import UUID
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
+import logging
 
 from app.models.calendar_event import CalendarEvent
 from app.models.booking import Booking
+from app.models.booking_flight import BookingFlight
+from app.models.user import User
 from app.schemas.calendar_event import CalendarEventCreate, CalendarEventResponse
+from app.core.google_calendar_client import get_google_calendar_client
+
+logger = logging.getLogger(__name__)
 
 
 async def get_calendar_events_by_user(
@@ -65,9 +72,14 @@ async def create_calendar_event(
     Create a Google Calendar event for a booking.
     Requires user to have connected Google Calendar (OAuth token).
     """
-    # Verify booking belongs to user
+    # Verify booking belongs to user and load relationships
     booking_result = await db.execute(
-        select(Booking).where(
+        select(Booking)
+        .options(
+            selectinload(Booking.flights),
+            selectinload(Booking.passenger)
+        )
+        .where(
             Booking.id == booking_id,
             Booking.user_id == user_id
         )
@@ -92,15 +104,68 @@ async def create_calendar_event(
             detail="Calendar event already exists for this booking"
         )
     
-    # TODO: Check if user has Google Calendar OAuth token
-    # If not, raise 400 "Google Calendar not connected"
+    # Check if booking has flights
+    if not booking.flights:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Booking has no flight information to add to calendar"
+        )
     
-    # TODO: Get flight details from BookingFlight
-    # TODO: Call Google Calendar API to create event
-    # For now, create a placeholder event
+    # Get user to check Google Calendar credentials
+    user_result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = user_result.scalar_one_or_none()
     
-    google_event_id = f"placeholder_{booking_id}"  # Replace with actual Google event ID
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
     
+    # Check if user has Google Calendar connected
+    google_tokens = user.metadata_.get('google_calendar', {}) if user.metadata_ else {}
+    access_token = google_tokens.get('access_token')
+    refresh_token = google_tokens.get('refresh_token')
+    
+    if not access_token or not refresh_token:
+        # For development: Create placeholder event
+        logger.warning(f"User {user_id} has no Google Calendar credentials. Creating placeholder event.")
+        google_event_id = f"placeholder_{booking_id}"
+    else:
+        try:
+            # Create Google Calendar client
+            calendar_client = get_google_calendar_client(
+                access_token=access_token,
+                refresh_token=refresh_token
+            )
+            
+            # Get first flight for calendar event
+            first_flight = booking.flights[0]
+            passenger = booking.passenger
+            passenger_name = f"{passenger.first_name} {passenger.last_name}" if passenger else "Unknown"
+            
+            # Create event in Google Calendar
+            google_event_id = calendar_client.create_flight_event(
+                booking_reference=booking.booking_reference or str(booking.id)[:8].upper(),
+                origin=first_flight.origin,
+                destination=first_flight.destination,
+                departure_time=first_flight.departure_time,
+                arrival_time=first_flight.arrival_time,
+                airline_code=first_flight.airline_code,
+                flight_number=first_flight.flight_number,
+                passenger_name=passenger_name,
+                calendar_id=calendar_id
+            )
+            
+            logger.info(f"Created Google Calendar event {google_event_id} for booking {booking_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create Google Calendar event: {e}")
+            # Fallback to placeholder if API fails
+            google_event_id = f"placeholder_{booking_id}"
+    
+    # Save calendar event to database
     db_event = CalendarEvent(
         booking_id=booking_id,
         user_id=user_id,

@@ -1,6 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+import logging
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+# Ensure app logs are shown
+logging.getLogger("app").setLevel(logging.INFO)
 
 from app.routes import (
     auth_route,
@@ -11,9 +22,11 @@ from app.routes import (
     payment_route,
     preference_route,
     calendar_route,
+    google_calendar_route,
     chat_route,
     notification_route,
     admin_route,
+    llm_route,
 )
 
 app = FastAPI(
@@ -33,6 +46,15 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {"message": "Travel Agent API", "version": "1.0.0"}
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize agent tools with DB session factory."""
+    from app.db.database import AsyncSessionLocal
+    from app.agents.tools import set_db_session_factory
+    set_db_session_factory(AsyncSessionLocal)
+
 
 # Auth & User routes
 app.include_router(auth_route.router)
@@ -55,6 +77,7 @@ app.include_router(preference_route.router)
 
 # Calendar routes
 app.include_router(calendar_route.router)
+app.include_router(google_calendar_route.router)
 
 # Chat routes
 app.include_router(chat_route.router)
@@ -64,3 +87,6 @@ app.include_router(notification_route.router)
 
 # Admin routes
 app.include_router(admin_route.router)
+
+# LLM config routes
+app.include_router(llm_route.router)

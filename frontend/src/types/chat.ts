@@ -24,6 +24,44 @@ export type Message = {
   intent?: string | null;
   agent_name?: string | null;
   created_at: string;
+  // Metadata from DB (contains attachments, suggested_actions)
+  metadata?: {
+    attachments?: MessageAttachment[];
+    suggested_actions?: MessageSuggestedAction[];
+  } | null;
+  // Rich content for card rendering (populated from SSE or parsed from metadata)
+  attachments?: MessageAttachment[];
+  suggested_actions?: MessageSuggestedAction[];
+};
+
+export type MessageAttachment =
+  | { type: "flight_offers"; offers: FlightOfferPayload[] }
+  | { type: "booking_success"; booking_id: string; booking_reference: string; status: string; flights?: FlightSegmentPayload[] };
+
+export type FlightOfferPayload = {
+  offer_id: string;
+  index: number;
+  total_price: number;
+  currency: string;
+  duration_minutes: number;
+  stops: number;
+  segments: FlightSegmentPayload[];
+};
+
+export type FlightSegmentPayload = {
+  origin: string;
+  destination: string;
+  departure_time: string;
+  arrival_time: string;
+  airline_code: string;
+  flight_number: string;
+};
+
+export type MessageSuggestedAction = {
+  label: string;
+  payload?: string;
+  type: string;
+  icon?: string;
 };
 
 export type SuggestedAction = {

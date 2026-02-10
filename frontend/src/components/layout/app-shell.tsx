@@ -11,6 +11,7 @@ import {
   SlidersHorizontalIcon,
   CalendarDaysIcon,
   MessageCircleIcon,
+  SettingsIcon,
   ShieldIcon,
   MenuIcon,
   LogOutIcon,
@@ -106,6 +107,7 @@ const NAV_ITEMS: {
   { href: "/preferences", label: "Sở thích", icon: SlidersHorizontalIcon },
   { href: "/calendar", label: "Lịch", icon: CalendarDaysIcon },
   { href: "/chat", label: "Chat", icon: MessageCircleIcon },
+  { href: "/settings", label: "Cài đặt AI", icon: SettingsIcon },
   { href: "/admin", label: "Admin", icon: ShieldIcon },
 ];
 

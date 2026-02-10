@@ -30,12 +30,12 @@ async def create_new_booking(
 async def list_my_bookings(
     skip: int = 0,
     limit: int = 20,
-    status: str | None = None,
+    status_filter: str | None = None,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get list of bookings for current user."""
-    bookings = await get_bookings(db, current_user.id, skip, limit, status)
+    bookings = await get_bookings(db, current_user.id, skip, limit, status_filter)
     return [BookingListResponse.model_validate(b) for b in bookings]
 
 

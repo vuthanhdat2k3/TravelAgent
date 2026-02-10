@@ -36,6 +36,7 @@ type FormValues = z.infer<typeof searchSchema>;
 
 export default function FlightSearchPage() {
   const form = useForm<FormValues>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(searchSchema) as any,
     defaultValues: {
       origin: "",

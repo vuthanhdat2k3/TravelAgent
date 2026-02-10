@@ -21,10 +21,14 @@ class Settings:
 
     # Google Calendar
     GOOGLE_CALENDAR_CREDENTIALS_JSON: str = os.getenv("GOOGLE_CALENDAR_CREDENTIALS_JSON")
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/google-calendar/callback")
 
     # Resend
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY")
     RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL")
+    RESEND_TEST_TO_EMAIL: str = os.getenv("RESEND_TEST_TO_EMAIL", "")
 
     # App
     APP_NAME: str = os.getenv("APP_NAME")
@@ -41,5 +45,9 @@ class Settings:
     APP_REFRESH_TOKEN_DAYS: int = int(os.getenv("APP_REFRESH_TOKEN_DAYS", "7"))
 
     # LLM
-
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL_NAME: str = os.getenv("GEMINI_MODEL_NAME")
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
+    NVIDIA_BASE_URL: str = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 settings = Settings()

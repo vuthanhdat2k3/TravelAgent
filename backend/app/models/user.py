@@ -30,3 +30,4 @@ class User(Base):
     user_preference = relationship("UserPreference", back_populates="user", uselist=False, cascade="all, delete-orphan")
     calendar_events = relationship("CalendarEvent", back_populates="user", cascade="all, delete-orphan")
     notification_logs = relationship("NotificationLog", back_populates="user", cascade="all, delete-orphan")
+    llm_config = relationship("LLMConfig", back_populates="user", uselist=False, cascade="all, delete-orphan")
