@@ -299,7 +299,9 @@ async def _detect_intent(
 
     try:
         response = await llm.ainvoke(messages)
-        content = response.content if hasattr(response, "content") else str(response)
+        raw_content = response.content if hasattr(response, "content") else str(response)
+        # Normalize Gemini multi-part content to string
+        content = _extract_text(raw_content)
 
         # Parse JSON from response
         # Try to extract JSON from the response (handle markdown code blocks)
@@ -402,6 +404,27 @@ def _build_assistant_task(intent: str, slots: dict) -> str:
     return f"Xử lý: {intent}"
 
 
+def _extract_text(content) -> str:
+    """Normalize LLM response content to plain string.
+
+    Gemini models may return content as a list of dicts
+    (multi-part) instead of a simple string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                parts.append(part.get("text", str(part)))
+            else:
+                parts.append(str(part))
+        return "".join(parts)
+    return str(content)
+
+
 async def _handle_greeting(llm: BaseChatModel, user_message: str) -> str:
     """Handle greeting messages directly."""
     messages = [
@@ -410,7 +433,8 @@ async def _handle_greeting(llm: BaseChatModel, user_message: str) -> str:
     ]
     try:
         response = await llm.ainvoke(messages)
-        return response.content if hasattr(response, "content") else str(response)
+        raw = response.content if hasattr(response, "content") else str(response)
+        return _extract_text(raw)
     except Exception as e:
         logger.error(f"Greeting handler error: {e}")
         return (

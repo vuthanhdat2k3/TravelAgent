@@ -38,8 +38,13 @@ async def _get_db():
         yield session
 
 
-def _db_session():
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def _db_session():
     """Return an async context manager for a DB session.
+
+    Ensures proper commit/rollback and connection return to pool.
 
     Usage:
         async with _db_session() as db:
@@ -47,7 +52,15 @@ def _db_session():
     """
     if _DB_SESSION_FACTORY is None:
         raise RuntimeError("DB session factory not configured.")
-    return _DB_SESSION_FACTORY()
+    session = _DB_SESSION_FACTORY()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
 
 
 

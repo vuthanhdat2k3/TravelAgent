@@ -7,6 +7,7 @@ It handles everything that isn't flight search/booking.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from uuid import UUID
 
@@ -16,6 +17,39 @@ from langchain_core.language_models import BaseChatModel
 from app.agents.tools import ASSISTANT_TOOLS
 
 logger = logging.getLogger(__name__)
+
+# Retry config for transient LLM errors
+_MAX_LLM_RETRIES = 2
+_RETRY_BACKOFF_S = 2.0
+_RETRYABLE_KEYWORDS = {"rate limit", "429", "quota", "resource exhausted",
+                       "503", "timeout", "timed out", "deadline_exceeded",
+                       "internal", "unavailable", "connection"}
+
+
+def _is_retryable(exc: Exception) -> bool:
+    msg = (str(exc) + str(type(exc).__name__)).lower()
+    return any(kw in msg for kw in _RETRYABLE_KEYWORDS) or not str(exc).strip()
+
+
+def _extract_text(content) -> str:
+    """Normalize LLM response content to plain string.
+
+    Gemini models may return content as a list of dicts
+    (multi-part) instead of a simple string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                parts.append(part.get("text", str(part)))
+            else:
+                parts.append(str(part))
+        return "".join(parts)
+    return str(content)
 
 ASSISTANT_AGENT_PROMPT = """Bạn là Assistant Agent – trợ lý thông tin du lịch.
 
@@ -116,12 +150,30 @@ Nhiệm vụ: {task}"""
 
     # Run agent loop (tool calling)
     max_iterations = 5
-    for _ in range(max_iterations):
-        try:
-            response = await llm_with_tools.ainvoke(messages)
-        except Exception as e:
-            logger.error(f"Assistant Agent LLM error: {e}")
-            return f"⚠️ Lỗi khi xử lý yêu cầu: {str(e)}"
+    for iteration in range(max_iterations):
+        # LLM call with retry for transient errors
+        response = None
+        for attempt in range(_MAX_LLM_RETRIES + 1):
+            try:
+                response = await llm_with_tools.ainvoke(messages)
+                break  # success
+            except Exception as e:
+                err_type = type(e).__name__
+                err_msg = str(e) or "(empty error message)"
+                logger.error(
+                    f"Assistant Agent LLM error (iter={iteration}, attempt={attempt+1}): "
+                    f"[{err_type}] {err_msg}",
+                    exc_info=True,
+                )
+                if attempt < _MAX_LLM_RETRIES and _is_retryable(e):
+                    wait = _RETRY_BACKOFF_S * (2 ** attempt)
+                    logger.info(f"Retrying in {wait:.1f}s...")
+                    await asyncio.sleep(wait)
+                else:
+                    return f"⚠️ Lỗi khi xử lý yêu cầu: [{err_type}] {err_msg}"
+
+        if response is None:
+            return "⚠️ Không nhận được phản hồi từ AI. Vui lòng thử lại."
 
         # Check if the LLM wants to call tools
         if hasattr(response, "tool_calls") and response.tool_calls:
@@ -151,6 +203,7 @@ Nhiệm vụ: {task}"""
                 )
         else:
             # No more tool calls – return the final response
-            return response.content if hasattr(response, "content") else str(response)
+            raw = response.content if hasattr(response, "content") else str(response)
+            return _extract_text(raw)
 
     return "⚠️ Agent đã xử lý quá nhiều bước. Vui lòng thử lại."

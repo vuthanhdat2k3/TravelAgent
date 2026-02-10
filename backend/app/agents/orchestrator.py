@@ -97,6 +97,16 @@ async def run_agent_pipeline(
         # Record successful call for rate limiting
         llm_rate_limiter.record_call(user_id)
 
+        # Ensure response_text is always a string (Gemini may return list)
+        if not isinstance(response_text, str):
+            if isinstance(response_text, list):
+                response_text = "".join(
+                    p if isinstance(p, str) else p.get("text", str(p)) if isinstance(p, dict) else str(p)
+                    for p in response_text
+                )
+            else:
+                response_text = str(response_text)
+
         # Note: _attachments and _suggested_actions are LEFT in state
         # so the caller (chat_service) can extract them for metadata.
         # The caller must pop them before persisting state to DB.
@@ -157,6 +167,16 @@ async def stream_agent_pipeline(
         )
 
         llm_rate_limiter.record_call(user_id)
+
+        # Ensure response_text is a string (Gemini may return list)
+        if not isinstance(response_text, str):
+            if isinstance(response_text, list):
+                response_text = "".join(
+                    p if isinstance(p, str) else p.get("text", str(p)) if isinstance(p, dict) else str(p)
+                    for p in response_text
+                )
+            else:
+                response_text = str(response_text)
 
         # Stream the response text character-by-character for smooth UX
         # (or in small chunks)

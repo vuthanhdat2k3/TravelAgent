@@ -9,6 +9,8 @@ engine = create_async_engine(
     async_database_url,
     echo=False,  # Set to True for SQL logging
     future=True,
+    pool_pre_ping=True,  # Verify connections before use
+    pool_recycle=300,     # Recycle connections every 5 min
 )
 AsyncSessionLocal = async_sessionmaker(
     engine,
