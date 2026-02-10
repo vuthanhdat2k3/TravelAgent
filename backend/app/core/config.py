@@ -44,6 +44,10 @@ class Settings:
     APP_JWT_EXP_TIME: int = int(os.getenv("APP_JWT_EXP_TIME", "30"))  # minutes
     APP_REFRESH_TOKEN_DAYS: int = int(os.getenv("APP_REFRESH_TOKEN_DAYS", "7"))
 
+    # Cache cleanup
+    CACHE_CLEANUP_INTERVAL_MINUTES: int = int(os.getenv("CACHE_CLEANUP_INTERVAL_MINUTES", "7"))
+    CACHE_STALE_THRESHOLD_MINUTES: int = int(os.getenv("CACHE_STALE_THRESHOLD_MINUTES", "30"))
+
     # LLM
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL_NAME: str = os.getenv("GEMINI_MODEL_NAME")

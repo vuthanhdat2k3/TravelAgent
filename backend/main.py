@@ -50,10 +50,22 @@ async def root():
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize agent tools with DB session factory."""
+    """Initialize agent tools with DB session factory and start background tasks."""
     from app.db.database import AsyncSessionLocal
     from app.agents.tools import set_db_session_factory
+    from app.services.cache_cleanup_service import start_cleanup_task
+
     set_db_session_factory(AsyncSessionLocal)
+
+    # Start periodic flight offer cache cleanup (every ~7 min)
+    start_cleanup_task()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Gracefully stop background tasks."""
+    from app.services.cache_cleanup_service import stop_cleanup_task
+    await stop_cleanup_task()
 
 
 # Auth & User routes

@@ -60,3 +60,26 @@ async def update_user(
 ):
     """Update user (admin only). Can update is_active to lock/unlock users."""
     return await update_user_admin(db, user_id, user_update)
+
+
+# ---------------------------------------------------------------------------
+# Cache management (admin only)
+# ---------------------------------------------------------------------------
+
+@router.get("/cache/stats")
+async def cache_stats(
+    current_user: User = Depends(get_current_superuser),
+):
+    """Get flight offer cache statistics."""
+    from app.services.cache_cleanup_service import get_cache_stats
+    return await get_cache_stats()
+
+
+@router.post("/cache/cleanup")
+async def trigger_cache_cleanup(
+    current_user: User = Depends(get_current_superuser),
+):
+    """Manually trigger flight offer cache cleanup."""
+    from app.services.cache_cleanup_service import cleanup_expired_offers
+    result = await cleanup_expired_offers()
+    return {"message": "Cache cleanup completed", **result}
